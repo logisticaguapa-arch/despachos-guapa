@@ -1951,12 +1951,13 @@ function opcionesRespuestaHTML(respuestaId, seleccionActual) {
 async function pintarSeccionChecklist(cargue) {
   const contenedor = el('seccion-checklist');
 
-  if (!['PENDIENTE', 'CHECKLIST'].includes(cargue.estado)) {
-    // Ya se decidió (Aprobado/Rechazado/En cargue/...): se muestra en solo lectura.
+  if (cargue.estado === 'RECHAZADO') {
+    // Cargue rechazado: no llega a la pantalla de pestañas (Cargue/Paradas/
+    // Resumen), así que aquí es el único lugar donde se puede ver el porqué.
     const checklist = obtenerChecklistDeCargue(cargue.id);
     if (checklist.length === 0) { contenedor.innerHTML = ''; return; }
     contenedor.innerHTML = `
-      <h2>Checklist (${cargue.checklistResultado === 'RECHAZADO' ? 'Rechazado' : 'Aprobado'})</h2>
+      <h2>Checklist (Rechazado)</h2>
       <div class="checklist-solo-lectura">
         ${checklist.map((r) => `
           <div class="item-checklist-lectura">
@@ -1965,6 +1966,13 @@ async function pintarSeccionChecklist(cargue) {
             ${r.observacion ? `<p class="observacion-lectura">${r.observacion}</p>` : ''}
           </div>`).join('')}
       </div>`;
+    return;
+  }
+
+  if (['APROBADO', 'EN_CARGUE', 'EN_PARADA', 'FINALIZADO', 'CERRADO'].includes(cargue.estado)) {
+    // Ya se decidió (aprobado): el checklist se ve, de solo lectura, dentro
+    // de la pestaña "Resumen" (ver pintarSeccionTiempos), no aquí.
+    contenedor.innerHTML = '';
     return;
   }
 
@@ -2056,90 +2064,27 @@ async function pintarSeccionTiempos(cargue) {
     return;
   }
 
-  // Checklist aprobado, todavía no arrancó el cargue: solo se pide la hora de inicio.
-  if (cargue.estado === 'APROBADO') {
-    contenedor.innerHTML = `
-      <h2>Cargue</h2>
-      <div class="mensaje-confirmacion">✓ Checklist aprobado. Falta iniciar el cargue.</div>
-      <label>Hora de inicio del cargue</label>
-      ${campoFechaHoraHTML('hora-inicio-cargue', datetimeLocalDeAhora())}
-      <button type="button" id="boton-iniciar-cargue" class="boton-primario">Iniciar cargue</button>
-      <p id="mensaje-error-tiempos" class="mensaje-error" hidden></p>`;
-    wireBotonesAhoraFechaHora(contenedor);
-    el('boton-iniciar-cargue').addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-tiempos');
-      mensajeError.hidden = true;
-      const boton = el('boton-iniciar-cargue');
-      boton.disabled = true;
-      try {
-        await iniciarCargue(cargue.id, leerFechaHora('hora-inicio-cargue'));
-        await pintarDetalleCargue(cargue.id);
-      } catch (error) {
-        mensajeError.textContent = error.message || 'No se pudo iniciar el cargue.';
-        mensajeError.hidden = false;
-      } finally {
-        boton.disabled = false;
-      }
-    });
-    return;
-  }
+  // ---------------------------------------------------------------------
+  // Pestaña "Resumen": todo de solo lectura — el checklist ya aprobado, el
+  // listado completo de paradas, y el cargue como tal (inicio/fin y, una
+  // vez finalizado, sus totales).
+  // ---------------------------------------------------------------------
+  const checklistResumen = obtenerChecklistDeCargue(cargue.id);
+  const checklistResumenHTML = checklistResumen.length === 0 ? '' : `
+    <h3>Checklist (${cargue.checklistResultado === 'RECHAZADO' ? 'Rechazado' : 'Aprobado'})</h3>
+    <div class="checklist-solo-lectura">
+      ${checklistResumen.map((r) => `
+        <div class="item-checklist-lectura">
+          <span>${r.textoSnapshot}</span>
+          <span class="valor-respuesta">${ETIQUETA_RESPUESTA_CHECKLIST[r.respuesta] || r.respuesta}</span>
+          ${r.observacion ? `<p class="observacion-lectura">${r.observacion}</p>` : ''}
+        </div>`).join('')}
+    </div>`;
 
-  let panelCargueHTML = '';
-  let panelParadasHTML = '';
-
-  if (cargue.estado === 'FINALIZADO' || cargue.estado === 'CERRADO') {
-    panelCargueHTML = `
-      <div class="fila"><span>Hora inicio</span><span>${formatearHora(cargue.horaInicioCargue)}</span></div>
-      <div class="fila"><span>Hora fin</span><span>${formatearHora(cargue.horaFinCargue)}</span></div>
-      <div class="fila"><span>Tiempo total</span><span>${formatearDuracion(cargue.tiempoTotalCargue)}</span></div>
-      <div class="fila"><span>Tiempo detenido</span><span>${formatearDuracion(cargue.tiempoDetenidoTotal)}</span></div>
-      <div class="fila"><span>Tiempo productivo</span><span>${formatearDuracion(cargue.tiempoProductivoCargue)}</span></div>
-      <div class="fila"><span>Canastillas encajables</span><span>${cargue.canastillasEncajables ?? 0}</span></div>
-      <div class="fila"><span>Canastillas grandes</span><span>${cargue.canastillasGrandes ?? 0}</span></div>
-      <div class="fila"><span>Canastillas pequeñas</span><span>${cargue.canastillasPequenas ?? 0}</span></div>
-      <button type="button" id="boton-editar-horas-cargue" class="boton-secundario">Corregir horas del cargue</button>`;
-  } else if (cargue.estado === 'EN_CARGUE') {
-    panelCargueHTML = `
-      <div class="fila"><span>Hora inicio</span><span>${formatearHora(cargue.horaInicioCargue)}</span></div>
-      <h3>Registrar parada</h3>
-      <label for="campo-causa-parada">Causa</label>
-      <select id="campo-causa-parada">${opcionesCausasAgrupadas(listarCausasParadaConDetalle())}</select>
-      <div id="bloque-descripcion-otros" hidden>
-        <label for="campo-descripcion-otros">Descripción</label>
-        <textarea id="campo-descripcion-otros"></textarea>
-      </div>
-      <label>Hora de inicio de la parada</label>
-      ${campoFechaHoraHTML('hora-inicio-parada', datetimeLocalDeAhora())}
-      <label for="campo-observaciones-parada">Observación (opcional)</label>
-      <textarea id="campo-observaciones-parada"></textarea>
-      <button type="button" id="boton-registrar-parada" class="boton-secundario">Registrar parada</button>
-      <p id="mensaje-error-tiempos" class="mensaje-error" hidden></p>
-      <h3>Finalizar cargue</h3>
-      <label>Hora de fin del cargue</label>
-      ${campoFechaHoraHTML('hora-fin-cargue', datetimeLocalDeAhora())}
-      <label for="campo-canastillas-encajables">Canastillas encajables</label>
-      <input id="campo-canastillas-encajables" type="number" inputmode="numeric" min="0" value="0" />
-      <label for="campo-canastillas-grandes">Canastillas grandes</label>
-      <input id="campo-canastillas-grandes" type="number" inputmode="numeric" min="0" value="0" />
-      <label for="campo-canastillas-pequenas">Canastillas pequeñas</label>
-      <input id="campo-canastillas-pequenas" type="number" inputmode="numeric" min="0" value="0" />
-      <button type="button" id="boton-finalizar-cargue" class="boton-primario">Finalizar cargue</button>`;
-  } else if (cargue.estado === 'EN_PARADA') {
-    const paradaAbierta = obtenerParadaAbierta(cargue.id);
-    panelCargueHTML = `
-      <div class="fila"><span>Hora inicio</span><span>${formatearHora(cargue.horaInicioCargue)}</span></div>
-      <div class="mensaje-confirmacion">⏸ En parada desde las ${formatearHora(paradaAbierta?.horaInicio)} — causa: ${paradaAbierta?.causaNombreSnapshot || '—'}</div>
-      <label>Hora de fin de la parada</label>
-      ${campoFechaHoraHTML('hora-fin-parada', datetimeLocalDeAhora())}
-      <button type="button" id="boton-finalizar-parada" class="boton-primario">Finalizar parada</button>
-      <button type="button" id="boton-cancelar-parada" class="boton-enlace boton-enlace-peligro">Esta parada no debió registrarse — cancelarla</button>
-      <p id="mensaje-error-tiempos" class="mensaje-error" hidden></p>`;
-  }
-
-  const paradas = listarParadasDeCargue(cargue.id);
-  panelParadasHTML = paradas.length === 0
+  const paradasResumen = listarParadasDeCargue(cargue.id);
+  const paradasResumenHTML = paradasResumen.length === 0
     ? '<p class="aviso-sin-paradas">Todavía no hay paradas registradas en este cargue.</p>'
-    : paradas.map((p) => `
+    : paradasResumen.map((p) => `
       <div class="fila-parada ${!p.horaFin ? 'fila-parada-abierta' : ''}" data-parada-id="${p.id}">
         <div class="fila-parada-encabezado">
           <span class="causa-parada">${p.causaNombreSnapshot}</span>
@@ -2154,13 +2099,107 @@ async function pintarSeccionTiempos(cargue) {
         </div>
       </div>`).join('');
 
+  let resumenCargueHTML;
+  if (cargue.estado === 'APROBADO') {
+    resumenCargueHTML = '<p class="nota-fase">El cargue todavía no ha iniciado.</p>';
+  } else if (cargue.estado === 'FINALIZADO' || cargue.estado === 'CERRADO') {
+    resumenCargueHTML = `
+      <div class="fila"><span>Hora inicio</span><span>${formatearHora(cargue.horaInicioCargue)}</span></div>
+      <div class="fila"><span>Hora fin</span><span>${formatearHora(cargue.horaFinCargue)}</span></div>
+      <div class="fila"><span>Tiempo total</span><span>${formatearDuracion(cargue.tiempoTotalCargue)}</span></div>
+      <div class="fila"><span>Tiempo detenido</span><span>${formatearDuracion(cargue.tiempoDetenidoTotal)}</span></div>
+      <div class="fila"><span>Tiempo productivo</span><span>${formatearDuracion(cargue.tiempoProductivoCargue)}</span></div>
+      <div class="fila"><span>Canastillas encajables</span><span>${cargue.canastillasEncajables ?? 0}</span></div>
+      <div class="fila"><span>Canastillas grandes</span><span>${cargue.canastillasGrandes ?? 0}</span></div>
+      <div class="fila"><span>Canastillas pequeñas</span><span>${cargue.canastillasPequenas ?? 0}</span></div>`;
+  } else {
+    // EN_CARGUE o EN_PARADA: todavía en curso, solo se conoce la hora de inicio.
+    resumenCargueHTML = `<div class="fila"><span>Hora inicio</span><span>${formatearHora(cargue.horaInicioCargue)}</span></div>`;
+  }
+
+  const panelResumenHTML = `
+    <h3>Cargue</h3>
+    ${resumenCargueHTML}
+    <h3>Paradas registradas</h3>
+    ${paradasResumenHTML}
+    ${checklistResumenHTML}`;
+
+  // ---------------------------------------------------------------------
+  // Pestaña "Cargue": solo las acciones sobre el cargue en sí (iniciarlo,
+  // finalizarlo, o corregir sus horas ya finalizado).
+  // ---------------------------------------------------------------------
+  let panelCargueHTML = '';
+  if (cargue.estado === 'APROBADO') {
+    panelCargueHTML = `
+      <div class="mensaje-confirmacion">✓ Checklist aprobado. Falta iniciar el cargue.</div>
+      <label>Hora de inicio del cargue</label>
+      ${campoFechaHoraHTML('hora-inicio-cargue', datetimeLocalDeAhora())}
+      <button type="button" id="boton-iniciar-cargue" class="boton-primario">Iniciar cargue</button>
+      <p id="mensaje-error-cargue" class="mensaje-error" hidden></p>`;
+  } else if (cargue.estado === 'FINALIZADO' || cargue.estado === 'CERRADO') {
+    panelCargueHTML = `<button type="button" id="boton-editar-horas-cargue" class="boton-secundario">Corregir horas del cargue</button>`;
+  } else if (cargue.estado === 'EN_CARGUE') {
+    panelCargueHTML = `
+      <h3>Finalizar cargue</h3>
+      <label>Hora de fin del cargue</label>
+      ${campoFechaHoraHTML('hora-fin-cargue', datetimeLocalDeAhora())}
+      <label for="campo-canastillas-encajables">Canastillas encajables</label>
+      <input id="campo-canastillas-encajables" type="number" inputmode="numeric" min="0" value="0" />
+      <label for="campo-canastillas-grandes">Canastillas grandes</label>
+      <input id="campo-canastillas-grandes" type="number" inputmode="numeric" min="0" value="0" />
+      <label for="campo-canastillas-pequenas">Canastillas pequeñas</label>
+      <input id="campo-canastillas-pequenas" type="number" inputmode="numeric" min="0" value="0" />
+      <button type="button" id="boton-finalizar-cargue" class="boton-primario">Finalizar cargue</button>
+      <p id="mensaje-error-cargue" class="mensaje-error" hidden></p>`;
+  } else if (cargue.estado === 'EN_PARADA') {
+    const paradaAbierta = obtenerParadaAbierta(cargue.id);
+    panelCargueHTML = `
+      <div class="mensaje-confirmacion">⏸ En parada desde las ${formatearHora(paradaAbierta?.horaInicio)} — causa: ${paradaAbierta?.causaNombreSnapshot || '—'}</div>
+      <p class="nota-fase">Ve a la pestaña "Paradas" para finalizar o cancelar esta parada. El cargue no se puede finalizar mientras esté en pausa.</p>`;
+  }
+
+  // ---------------------------------------------------------------------
+  // Pestaña "Paradas": solo las acciones sobre las paradas (registrar una
+  // nueva, o finalizar/cancelar la que esté abierta).
+  // ---------------------------------------------------------------------
+  let panelParadasHTML = '';
+  if (cargue.estado === 'EN_CARGUE') {
+    panelParadasHTML = `
+      <h3>Registrar parada</h3>
+      <label for="campo-causa-parada">Causa</label>
+      <select id="campo-causa-parada">${opcionesCausasAgrupadas(listarCausasParadaConDetalle())}</select>
+      <div id="bloque-descripcion-otros" hidden>
+        <label for="campo-descripcion-otros">Descripción</label>
+        <textarea id="campo-descripcion-otros"></textarea>
+      </div>
+      <label>Hora de inicio de la parada</label>
+      ${campoFechaHoraHTML('hora-inicio-parada', datetimeLocalDeAhora())}
+      <label for="campo-observaciones-parada">Observación (opcional)</label>
+      <textarea id="campo-observaciones-parada"></textarea>
+      <button type="button" id="boton-registrar-parada" class="boton-secundario">Registrar parada</button>
+      <p id="mensaje-error-paradas" class="mensaje-error" hidden></p>`;
+  } else if (cargue.estado === 'EN_PARADA') {
+    const paradaAbierta = obtenerParadaAbierta(cargue.id);
+    panelParadasHTML = `
+      <div class="mensaje-confirmacion">⏸ En parada desde las ${formatearHora(paradaAbierta?.horaInicio)} — causa: ${paradaAbierta?.causaNombreSnapshot || '—'}</div>
+      <label>Hora de fin de la parada</label>
+      ${campoFechaHoraHTML('hora-fin-parada', datetimeLocalDeAhora())}
+      <button type="button" id="boton-finalizar-parada" class="boton-primario">Finalizar parada</button>
+      <button type="button" id="boton-cancelar-parada" class="boton-enlace boton-enlace-peligro">Esta parada no debió registrarse — cancelarla</button>
+      <p id="mensaje-error-paradas" class="mensaje-error" hidden></p>`;
+  } else {
+    panelParadasHTML = '<p class="nota-fase">Aquí vas a poder registrar una parada nueva mientras el cargue esté en curso.</p>';
+  }
+
   contenedor.innerHTML = `
     <div class="tabs-tiempos">
       <button type="button" class="tab-tiempos ${vistaTiempos === 'cargue' ? 'activa' : ''}" data-tab="cargue">Cargue</button>
       <button type="button" class="tab-tiempos ${vistaTiempos === 'paradas' ? 'activa' : ''}" data-tab="paradas">Paradas</button>
+      <button type="button" class="tab-tiempos ${vistaTiempos === 'resumen' ? 'activa' : ''}" data-tab="resumen">Resumen</button>
     </div>
     <div class="seccion-tiempos" id="panel-tiempos-cargue" ${vistaTiempos !== 'cargue' ? 'hidden' : ''}>${panelCargueHTML}</div>
-    <div class="seccion-tiempos" id="panel-tiempos-paradas" ${vistaTiempos !== 'paradas' ? 'hidden' : ''}>${panelParadasHTML}</div>`;
+    <div class="seccion-tiempos" id="panel-tiempos-paradas" ${vistaTiempos !== 'paradas' ? 'hidden' : ''}>${panelParadasHTML}</div>
+    <div class="seccion-tiempos" id="panel-tiempos-resumen" ${vistaTiempos !== 'resumen' ? 'hidden' : ''}>${panelResumenHTML}</div>`;
 
   contenedor.querySelectorAll('.tab-tiempos').forEach((boton) => {
     boton.addEventListener('click', () => {
@@ -2176,6 +2215,24 @@ async function pintarSeccionTiempos(cargue) {
 function wireAccionesTiempos(cargue) {
   const contenedor = el('seccion-tiempos');
 
+  const botonIniciarCargue = el('boton-iniciar-cargue');
+  if (botonIniciarCargue) {
+    botonIniciarCargue.addEventListener('click', async () => {
+      const mensajeError = el('mensaje-error-cargue');
+      mensajeError.hidden = true;
+      botonIniciarCargue.disabled = true;
+      try {
+        await iniciarCargue(cargue.id, leerFechaHora('hora-inicio-cargue'));
+        await pintarDetalleCargue(cargue.id);
+      } catch (error) {
+        mensajeError.textContent = error.message || 'No se pudo iniciar el cargue.';
+        mensajeError.hidden = false;
+      } finally {
+        botonIniciarCargue.disabled = false;
+      }
+    });
+  }
+
   const selectCausa = el('campo-causa-parada');
   if (selectCausa) {
     const causas = listarCausasParadaConDetalle();
@@ -2188,7 +2245,7 @@ function wireAccionesTiempos(cargue) {
   const botonRegistrarParada = el('boton-registrar-parada');
   if (botonRegistrarParada) {
     botonRegistrarParada.addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-tiempos');
+      const mensajeError = el('mensaje-error-paradas');
       mensajeError.hidden = true;
       botonRegistrarParada.disabled = true;
       try {
@@ -2211,7 +2268,7 @@ function wireAccionesTiempos(cargue) {
   const botonFinalizarParada = el('boton-finalizar-parada');
   if (botonFinalizarParada) {
     botonFinalizarParada.addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-tiempos');
+      const mensajeError = el('mensaje-error-paradas');
       mensajeError.hidden = true;
       botonFinalizarParada.disabled = true;
       try {
@@ -2242,7 +2299,7 @@ function wireAccionesTiempos(cargue) {
   const botonFinalizarCargue = el('boton-finalizar-cargue');
   if (botonFinalizarCargue) {
     botonFinalizarCargue.addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-tiempos');
+      const mensajeError = el('mensaje-error-cargue');
       mensajeError.hidden = true;
       botonFinalizarCargue.disabled = true;
       try {
