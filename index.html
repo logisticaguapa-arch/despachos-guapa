@@ -2135,7 +2135,7 @@ async function pintarSeccionTiempos(cargue) {
       <label>Hora de inicio del cargue</label>
       ${campoFechaHoraHTML('hora-inicio-cargue', datetimeLocalDeAhora())}
       <button type="button" id="boton-iniciar-cargue" class="boton-primario">Iniciar cargue</button>
-      <p id="mensaje-error-cargue" class="mensaje-error" hidden></p>`;
+      <p id="mensaje-error-tab-cargue" class="mensaje-error" hidden></p>`;
   } else if (cargue.estado === 'FINALIZADO' || cargue.estado === 'CERRADO') {
     panelCargueHTML = `<button type="button" id="boton-editar-horas-cargue" class="boton-secundario">Corregir horas del cargue</button>`;
   } else if (cargue.estado === 'EN_CARGUE') {
@@ -2150,7 +2150,7 @@ async function pintarSeccionTiempos(cargue) {
       <label for="campo-canastillas-pequenas">Canastillas pequeñas</label>
       <input id="campo-canastillas-pequenas" type="number" inputmode="numeric" min="0" value="0" />
       <button type="button" id="boton-finalizar-cargue" class="boton-primario">Finalizar cargue</button>
-      <p id="mensaje-error-cargue" class="mensaje-error" hidden></p>`;
+      <p id="mensaje-error-tab-cargue" class="mensaje-error" hidden></p>`;
   } else if (cargue.estado === 'EN_PARADA') {
     const paradaAbierta = obtenerParadaAbierta(cargue.id);
     panelCargueHTML = `
@@ -2218,7 +2218,7 @@ function wireAccionesTiempos(cargue) {
   const botonIniciarCargue = el('boton-iniciar-cargue');
   if (botonIniciarCargue) {
     botonIniciarCargue.addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-cargue');
+      const mensajeError = el('mensaje-error-tab-cargue');
       mensajeError.hidden = true;
       botonIniciarCargue.disabled = true;
       try {
@@ -2299,7 +2299,7 @@ function wireAccionesTiempos(cargue) {
   const botonFinalizarCargue = el('boton-finalizar-cargue');
   if (botonFinalizarCargue) {
     botonFinalizarCargue.addEventListener('click', async () => {
-      const mensajeError = el('mensaje-error-cargue');
+      const mensajeError = el('mensaje-error-tab-cargue');
       mensajeError.hidden = true;
       botonFinalizarCargue.disabled = true;
       try {
