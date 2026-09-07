@@ -1011,6 +1011,23 @@ let ESTADO = {
   cargues: [], paradas: [], checklistRespuestas: [], descargues: [],
 };
 
+// Actualiza (o agrega) UN registro dentro de ESTADO, sin tener que volver a
+// pedirle a Google la información completa de las 13 hojas. Cada acción que
+// guarda algo recibe de vuelta el registro ya actualizado (ver Codigo.gs) y
+// lo aplica aquí — así la pantalla siguiente aparece de inmediato, sin
+// esperar un segundo viaje de red solo para refrescar.
+function _aplicarEnEstado(nombreLista, registro) {
+  if (!registro) return;
+  const lista = ESTADO[nombreLista];
+  const idx = lista.findIndex((x) => x.id === registro.id);
+  if (idx === -1) lista.push(registro); else lista[idx] = registro;
+}
+function _quitarDeEstado(nombreLista, id) {
+  const lista = ESTADO[nombreLista];
+  const idx = lista.findIndex((x) => x.id === id);
+  if (idx !== -1) lista.splice(idx, 1);
+}
+
 // ---- Acceso (contraseña compartida, verificada por el servidor) -----------
 
 const LLAVE_LOCAL_HASH = 'guapaDespachosPasswordHash';
@@ -1250,20 +1267,20 @@ async function crearCargue({ clienteId, destinoId, vehiculoId, conductorId, fech
     throw new Error('Faltan datos obligatorios para crear el cargue.');
   }
   const respuesta = await apiPost('crearCargue', { clienteId, destinoId, vehiculoId, conductorId, fecha });
-  await cargarEstadoCompleto();
-  return respuesta.id;
+  _aplicarEnEstado('cargues', respuesta.cargue);
+  return respuesta.cargue.id;
 }
 
 async function agregarVehiculoRapido(placa) {
   const respuesta = await apiPost('agregarVehiculo', { placa });
-  await cargarEstadoCompleto();
-  return respuesta.id;
+  _aplicarEnEstado('vehiculos', respuesta.vehiculo);
+  return respuesta.vehiculo.id;
 }
 
 async function agregarConductorRapido(nombreCompleto) {
   const respuesta = await apiPost('agregarConductor', { nombreCompleto });
-  await cargarEstadoCompleto();
-  return respuesta.id;
+  _aplicarEnEstado('conductores', respuesta.conductor);
+  return respuesta.conductor.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -1273,8 +1290,9 @@ async function agregarConductorRapido(nombreCompleto) {
 async function asegurarChecklistCreado(cargueId) {
   const existentes = ESTADO.checklistRespuestas.filter((r) => r.cargueId === cargueId);
   if (existentes.length > 0) return;
-  await apiPost('crearChecklist', { cargueId });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('crearChecklist', { cargueId });
+  (respuesta.respuestas || []).forEach((r) => _aplicarEnEstado('checklistRespuestas', r));
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 function obtenerChecklistDeCargue(cargueId) {
@@ -1284,13 +1302,13 @@ function obtenerChecklistDeCargue(cargueId) {
 }
 
 async function responderItemChecklist(respuestaId, respuesta, observacion) {
-  await apiPost('responderChecklist', { respuestaId, respuesta, observacion: (observacion || '').trim() });
-  await cargarEstadoCompleto();
+  const resultado = await apiPost('responderChecklist', { respuestaId, respuesta, observacion: (observacion || '').trim() });
+  _aplicarEnEstado('checklistRespuestas', resultado.respuesta);
 }
 
 async function finalizarChecklist(cargueId) {
   const respuesta = await apiPost('finalizarChecklist', { cargueId });
-  await cargarEstadoCompleto();
+  _aplicarEnEstado('cargues', respuesta.cargue);
   return respuesta;
 }
 
@@ -1330,12 +1348,12 @@ function listarCausasParadaConDetalle() {
 }
 
 async function agregarCausa(datos) {
-  await apiPost('agregarCausa', datos);
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('agregarCausa', datos);
+  _aplicarEnEstado('causasParada', respuesta.causa);
 }
 async function editarCausa(causaId, datos) {
-  await apiPost('editarCausa', { causaId, ...datos });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('editarCausa', { causaId, ...datos });
+  _aplicarEnEstado('causasParada', respuesta.causa);
 }
 
 // ---------------------------------------------------------------------------
@@ -1354,22 +1372,24 @@ function listarParadasDeCargue(cargueId) {
 async function iniciarCargue(cargueId, horaInicioLocalStr) {
   const horaInicioISO = isoDesdeLocal(horaInicioLocalStr);
   if (!horaInicioISO) throw new Error('Indica la hora de inicio del cargue.');
-  await apiPost('iniciarCargue', { cargueId, horaInicioISO });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('iniciarCargue', { cargueId, horaInicioISO });
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 async function registrarParada(cargueId, { causaId, horaInicioLocalStr, observaciones, descripcionOtros }) {
   const horaInicioISO = isoDesdeLocal(horaInicioLocalStr);
   if (!horaInicioISO) throw new Error('Indica la hora de inicio de la parada.');
-  await apiPost('registrarParada', { cargueId, causaId, horaInicioISO, observaciones, descripcionOtros });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('registrarParada', { cargueId, causaId, horaInicioISO, observaciones, descripcionOtros });
+  _aplicarEnEstado('paradas', respuesta.parada);
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 async function finalizarParada(paradaId, horaFinLocalStr) {
   const horaFinISO = isoDesdeLocal(horaFinLocalStr);
   if (!horaFinISO) throw new Error('Indica la hora de fin de la parada.');
   const respuesta = await apiPost('finalizarParada', { paradaId, horaFinISO });
-  await cargarEstadoCompleto();
+  _aplicarEnEstado('paradas', respuesta.parada);
+  _aplicarEnEstado('cargues', respuesta.cargue);
   return respuesta;
 }
 
@@ -1382,28 +1402,30 @@ async function editarParada(paradaId, { causaId, horaInicioLocalStr, horaFinLoca
     horaFinISO = isoDesdeLocal(horaFinLocalStr);
     if (!horaFinISO) throw new Error('Indica la hora de fin de la parada.');
   }
-  await apiPost('editarParada', { paradaId, causaId, horaInicioISO, horaFinISO, observaciones, descripcionOtros });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('editarParada', { paradaId, causaId, horaInicioISO, horaFinISO, observaciones, descripcionOtros });
+  _aplicarEnEstado('paradas', respuesta.parada);
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 async function eliminarParada(paradaId) {
-  await apiPost('eliminarParada', { paradaId });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('eliminarParada', { paradaId });
+  _quitarDeEstado('paradas', respuesta.paradaId);
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 async function finalizarCargue(cargueId, horaFinLocalStr, canastillas) {
   const horaFinISO = isoDesdeLocal(horaFinLocalStr);
   if (!horaFinISO) throw new Error('Indica la hora de fin del cargue.');
-  await apiPost('finalizarCargue', { cargueId, horaFinISO, canastillas });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('finalizarCargue', { cargueId, horaFinISO, canastillas });
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 async function editarHorasCargue(cargueId, { horaInicioLocalStr, horaFinLocalStr }) {
   const horaInicioISO = isoDesdeLocal(horaInicioLocalStr);
   const horaFinISO = isoDesdeLocal(horaFinLocalStr);
   if (!horaInicioISO || !horaFinISO) throw new Error('Indica la hora de inicio y de fin del cargue.');
-  await apiPost('editarHorasCargue', { cargueId, horaInicioISO, horaFinISO });
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('editarHorasCargue', { cargueId, horaInicioISO, horaFinISO });
+  _aplicarEnEstado('cargues', respuesta.cargue);
 }
 
 // ---------------------------------------------------------------------------
@@ -1433,8 +1455,8 @@ async function crearDescargue(datos) {
     horaFinISO: isoDesdeLocal(datos.horaFinLocalStr),
   };
   if (!payload.horaInicioISO || !payload.horaFinISO) throw new Error('Indica la hora de inicio y de fin.');
-  await apiPost('crearDescargue', payload);
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('crearDescargue', payload);
+  _aplicarEnEstado('descargues', respuesta.descargue);
 }
 
 async function editarDescargue(descargueId, datos) {
@@ -1445,8 +1467,8 @@ async function editarDescargue(descargueId, datos) {
     horaFinISO: isoDesdeLocal(datos.horaFinLocalStr),
   };
   if (!payload.horaInicioISO || !payload.horaFinISO) throw new Error('Indica la hora de inicio y de fin.');
-  await apiPost('editarDescargue', payload);
-  await cargarEstadoCompleto();
+  const respuesta = await apiPost('editarDescargue', payload);
+  _aplicarEnEstado('descargues', respuesta.descargue);
 }
 
 // ---------------------------------------------------------------------------
@@ -1786,6 +1808,11 @@ async function abrirPantallaNuevoCargue() {
   el('bloque-nuevo-vehiculo').hidden = true;
   el('bloque-nuevo-conductor').hidden = true;
   el('campo-fecha').value = fechaLocalHoyISO();
+  // Se trae lo más reciente ANTES de llenar los desplegables — si esto no se
+  // espera aquí, es posible entrar a esta pantalla justo en el instante en
+  // que la primera carga de catálogos todavía está en camino y ver los
+  // desplegables vacíos aunque los catálogos sí existan en la hoja.
+  await cargarEstadoCompletoSeguro();
   poblarSelectClientes();
   poblarSelectDestinos('');
   poblarSelectVehiculos();
@@ -1807,7 +1834,7 @@ async function manejarEnvioNuevoCargue(evento) {
       conductorId: el('campo-conductor').value,
       fecha: el('campo-fecha').value,
     });
-    await abrirDetalleCargue(id, 'principal');
+    await mostrarDetalleCargueSinRefrescar(id, 'principal');
   } catch (error) {
     mensajeError.textContent = error.message || 'No se pudo crear el cargue.';
     mensajeError.hidden = false;
@@ -1823,12 +1850,23 @@ async function manejarEnvioNuevoCargue(evento) {
 let origenDetalleCargue = 'principal';
 let vistaTiempos = 'cargue';
 
-async function abrirDetalleCargue(cargueId, origenPantalla) {
+// Se usa justo después de crear/guardar algo en ESTE mismo celular: como la
+// respuesta del servidor ya viene aplicada a ESTADO (ver _aplicarEnEstado),
+// no hace falta pedir de nuevo la información completa — eso es lo que
+// hacía sentir lenta la transición a la pantalla siguiente.
+function mostrarDetalleCargueSinRefrescar(cargueId, origenPantalla) {
   origenDetalleCargue = origenPantalla;
   vistaTiempos = 'cargue';
-  await cargarEstadoCompletoSeguro();
   mostrarPantalla('pantalla-detalle-cargue');
-  await pintarDetalleCargue(cargueId);
+  return pintarDetalleCargue(cargueId);
+}
+
+// Se usa al abrir un cargue desde una LISTA (Cargues activos / Historial):
+// ahí sí conviene traer lo más reciente primero, porque pudo haberlo tocado
+// otro supervisor desde otro celular.
+async function abrirDetalleCargue(cargueId, origenPantalla) {
+  await cargarEstadoCompletoSeguro();
+  return mostrarDetalleCargueSinRefrescar(cargueId, origenPantalla);
 }
 
 async function pintarDetalleCargue(cargueId) {
@@ -2315,6 +2353,7 @@ async function abrirPantallaNuevoDescargue() {
   el('bloque-descargue-nuevo-vehiculo').hidden = true;
   el('bloque-descargue-nuevo-conductor').hidden = true;
   el('campo-descargue-fecha').value = fechaLocalHoyISO();
+  await cargarEstadoCompletoSeguro();
   poblarSelectClientesDescargue();
   poblarSelectDestinosDescargue('');
   poblarSelectVehiculosDescargue();
