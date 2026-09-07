@@ -5,6 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
   <title>Despachos Guapa — En línea</title>
 
+  <!-- Ícono de la app: aparece en la pestaña del navegador, al instalarla en
+       el celular, y como logo al compartir el link. -->
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1b6b3b">
+
+  <!-- Vista previa al compartir el link (WhatsApp, correo, etc.). Ya
+       apunta a tu link de GitHub Pages. Si algún día cambias de repositorio
+       o de usuario en GitHub, actualiza las 3 líneas de abajo. -->
+  <meta property="og:title" content="Despachos Guapa">
+  <meta property="og:description" content="Gestión de cosecha y despachos — Agrícola Guapa">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://logisticaguapa-arch.github.io/despachos-guapa/">
+  <meta property="og:image" content="https://logisticaguapa-arch.github.io/despachos-guapa/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Despachos Guapa">
+  <meta name="twitter:description" content="Gestión de cosecha y despachos — Agrícola Guapa">
+  <meta name="twitter:image" content="https://logisticaguapa-arch.github.io/despachos-guapa/og-image.png">
+
   <style>
 /* Mismos estilos de la versión anterior — mobile-first, sin frameworks. */
 
@@ -727,6 +749,16 @@ input[type="text"], input[type="password"], input[type="time"], input[type="date
           <button id="boton-gestionar-causas" class="boton-secundario">Gestionar causas de tiempos muertos</button>
         </div>
 
+        <h3 class="titulo-herramientas">Instalar en el celular</h3>
+        <p class="nota-fase">
+          Instala Despachos Guapa como una aplicación: va a quedar con su propio ícono en la pantalla de
+          inicio, como cualquier otra app, y se abre directo sin pasar por el navegador.
+        </p>
+        <div class="acciones-respaldo">
+          <button id="boton-instalar-app" class="boton-secundario">📲 Descargar aplicación en tu celular</button>
+        </div>
+        <p id="mensaje-instalar" class="nota-fase" hidden></p>
+
         <h3 class="titulo-herramientas">Conexión con Google Sheets</h3>
         <p id="estado-conexion" class="nota-fase"></p>
 
@@ -996,6 +1028,24 @@ input[type="text"], input[type="password"], input[type="time"], input[type="date
 // una nueva versión de la misma, ver GUIA_DESPLIEGUE.md) esta línea es la
 // única que habría que actualizar.
 const URL_API = 'https://script.google.com/macros/s/AKfycbz1pLWWzv9mkXTbOyp_Ol1Ul2TwowDPVsc-O-ZgzL-MdfTWc3sB90oBHjYFjVlRQmxDFQ/exec';
+
+// Registra el service worker mínimo (ver sw.js): solo habilita el botón de
+// "instalar aplicación", no agrega modo sin conexión ni cambia nada más.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// El navegador dispara este evento cuando decide que la app cumple los
+// requisitos para instalarse (Android/Chrome). Lo guardamos para poder
+// mostrar el cuadro de instalación cuando el usuario toque el botón.
+let promptInstalacionApp = null;
+window.addEventListener('beforeinstallprompt', (evento) => {
+  evento.preventDefault();
+  promptInstalacionApp = evento;
+});
+window.addEventListener('appinstalled', () => {
+  promptInstalacionApp = null;
+});
 
 function el(id) {
   return document.getElementById(id);
@@ -2649,6 +2699,40 @@ async function iniciar() {
   });
   el('boton-ver-catalogos').addEventListener('click', mostrarDiagnosticoCatalogos);
   el('boton-gestionar-causas').addEventListener('click', abrirPantallaGestionCausas);
+
+  el('boton-instalar-app').addEventListener('click', async () => {
+    const mensaje = el('mensaje-instalar');
+    mensaje.hidden = false;
+
+    const yaInstalada =
+      window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    if (yaInstalada) {
+      mensaje.textContent = 'Esta aplicación ya está instalada en este celular.';
+      return;
+    }
+
+    if (promptInstalacionApp) {
+      mensaje.hidden = true;
+      promptInstalacionApp.prompt();
+      const resultado = await promptInstalacionApp.userChoice;
+      promptInstalacionApp = null;
+      if (resultado.outcome !== 'accepted') {
+        mensaje.hidden = false;
+        mensaje.textContent = 'No se instaló. Puedes intentarlo de nuevo cuando quieras desde este mismo botón.';
+      }
+      return;
+    }
+
+    const enIphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (enIphone) {
+      mensaje.textContent =
+        'En iPhone: toca el botón Compartir (el cuadro con la flecha hacia arriba, abajo en Safari) y luego elige "Agregar a pantalla de inicio".';
+      return;
+    }
+
+    mensaje.textContent =
+      'Este navegador no ofrece instalación automática. Ábrela con Chrome en un celular Android para instalarla como aplicación, o sigue usando el link normalmente — funciona igual.';
+  });
 
   el('boton-respaldar-datos').addEventListener('click', () => {
     const mensajeError = el('mensaje-respaldo');
